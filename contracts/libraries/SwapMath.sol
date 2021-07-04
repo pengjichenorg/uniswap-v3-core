@@ -4,11 +4,16 @@ pragma solidity >=0.5.0;
 import './FullMath.sol';
 import './SqrtPriceMath.sol';
 
+// 单个ticker价格区间内的交换计算
+
 /// @title Computes the result of a swap within ticks
 /// @notice Contains methods for computing the result of a swap within a single tick price range, i.e., a single tick.
 library SwapMath {
     /// @notice Computes the result of swapping some amount in, or amount out, given the parameters of the swap
     /// @dev The fee, plus the amount in, will never exceed the amount remaining if the swap's `amountSpecified` is positive
+
+    // 交换开始价格和交换截止价格, 可以计算价格变动, 根据价格变动和L可以计算出兑换出多少token或者需要多少token进行兑换
+
     /// @param sqrtRatioCurrentX96 The current sqrt price of the pool
     /// @param sqrtRatioTargetX96 The price that cannot be exceeded, from which the direction of the swap is inferred
     /// @param liquidity The usable liquidity
@@ -34,10 +39,17 @@ library SwapMath {
             uint256 feeAmount
         )
     {
+        // target价格变低, 即卖出操作, amount0In>0, amount1Out = 0
+        // targe价格变高, 则是买入操作, 即amount0In = 0, amount1Out > 0
+
         bool zeroForOne = sqrtRatioCurrentX96 >= sqrtRatioTargetX96;
         bool exactIn = amountRemaining >= 0;
 
         if (exactIn) {
+
+            // 手续费: 万五, 千三或者百一的手续费, fee = amountRemaining*feeRate
+            // 刨除手续费: lessFee = amountRemaining*(1-feeRate)
+
             uint256 amountRemainingLessFee = FullMath.mulDiv(uint256(amountRemaining), 1e6 - feePips, 1e6);
             amountIn = zeroForOne
                 ? SqrtPriceMath.getAmount0Delta(sqrtRatioTargetX96, sqrtRatioCurrentX96, liquidity, true)

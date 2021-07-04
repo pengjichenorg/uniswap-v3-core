@@ -121,12 +121,17 @@ library Tick {
     ) internal returns (bool flipped) {
         Tick.Info storage info = self[tick];
 
+        // 获取此 tick 更新之前的流动性
+
         uint128 liquidityGrossBefore = info.liquidityGross;
         uint128 liquidityGrossAfter = LiquidityMath.addDelta(liquidityGrossBefore, liquidityDelta);
 
         require(liquidityGrossAfter <= maxLiquidity, 'LO');
 
         flipped = (liquidityGrossAfter == 0) != (liquidityGrossBefore == 0);
+
+        // 如果 tick 在更新之前的 liquidityGross 为 0，那么表示我们本次为初始化操作
+        // 这里会初始化 tick 中的 f_o
 
         if (liquidityGrossBefore == 0) {
             // by convention, we assume that all growth before a tick was initialized happened _below_ the tick

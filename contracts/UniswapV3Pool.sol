@@ -54,8 +54,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     uint128 public immutable override maxLiquidityPerTick;
 
     struct Slot0 {
+
+        // 当前价格sqrt(P), P = x / y
+
         // the current price
         uint160 sqrtPriceX96;
+
+        // 当前tick, 即价格左边最靠近价格的tick, 即 ic
+
         // the current tick
         int24 tick;
         // the most-recently updated index of the observations array
@@ -73,10 +79,16 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     /// @inheritdoc IUniswapV3PoolState
     Slot0 public override slot0;
 
+    // 交易池累积的单位流动性对应的手续费收益, 对应白皮书中的fg0和fg1
+
     /// @inheritdoc IUniswapV3PoolState
     uint256 public override feeGrowthGlobal0X128;
     /// @inheritdoc IUniswapV3PoolState
     uint256 public override feeGrowthGlobal1X128;
+
+    // 每token总共已获得, 还未被提取的协议(control)费用
+    // 对应白皮书中的fp0和fp1
+    // 可以调用collectProtocol()提取协议费用
 
     // accumulated protocol fees in token0/token1 units
     struct ProtocolFees {
@@ -85,6 +97,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     }
     /// @inheritdoc IUniswapV3PoolState
     ProtocolFees public override protocolFees;
+
+    // 交易对中的流动性L, L=sqrt(x*y)
 
     /// @inheritdoc IUniswapV3PoolState
     uint128 public override liquidity;
@@ -266,6 +280,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             emit IncreaseObservationCardinalityNext(observationCardinalityNextOld, observationCardinalityNextNew);
     }
 
+    // 每个交易池的initialize函数初始化交易池的参数和状态。所有交易池的参数和状态用一个数据结构Slot0来记录
+
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev not locked because it initializes unlocked
     function initialize(uint160 sqrtPriceX96) external override {
@@ -274,6 +290,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int24 tick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
 
         (uint16 cardinality, uint16 cardinalityNext) = observations.initialize(_blockTimestamp());
+
+        //  保存交易对状态
+        // 在初始化的时候，初始化了交易价格。这样可以把所有流动性的添加逻辑统一。
 
         slot0 = Slot0({
             sqrtPriceX96: sqrtPriceX96,
@@ -370,6 +389,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             }
         }
     }
+
+    // 为了便于计算，流动性的状态更新是通过流动性(position)边界上的Tick的liquidityNet来表示
+    // 更新Poisition对应边界的Tick信息
 
     /// @dev Gets and updates a position with the given liquidity delta
     /// @param owner the owner of the position
@@ -512,6 +534,10 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         emit Collect(msg.sender, recipient, tickLower, tickUpper, amount0, amount1);
     }
 
+
+    // 删除流动性
+    // 如果某个流动性为0，并且所有的手续费已经收取，可以通过NonfungiblePositionManager的burn函数删除该流动性对应的ERC721的Token 
+
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev noDelegateCall is applied indirectly via _modifyPosition
     function burn(
@@ -592,6 +618,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         uint256 feeAmount;
     }
 
+    // 交易对中的swap兑换操作
+
     /// @inheritdoc IUniswapV3PoolActions
     function swap(
         address recipient,
@@ -601,6 +629,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         bytes calldata data
     ) external override noDelegateCall returns (int256 amount0, int256 amount1) {
         require(amountSpecified != 0, 'AS');
+
+        // 交易池的交易状态
 
         Slot0 memory slot0Start = slot0;
 
@@ -612,7 +642,11 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             'SPL'
         );
 
+        // 防止重入攻击
+
         slot0.unlocked = false;
+
+        // swap开始前状态流动性
 
         SwapCache memory cache =
             SwapCache({
@@ -626,6 +660,13 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
         bool exactInput = amountSpecified > 0;
 
+
+        // state.amountSpecifiedRemaining: 剩余待交换的token0或token1, 如果有剩余, 则跨越ticker进行交换
+        // sqrtPriceX96: 开始交换时的价格
+        // feeGrowthGlobalX128: 全局单位流动性的手续费
+        // protocolFee: 协议手续费
+        // liquidity: 全局当前流动性
+
         SwapState memory state =
             SwapState({
                 amountSpecifiedRemaining: amountSpecified,
@@ -637,11 +678,17 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                 liquidity: cache.liquidityStart
             });
 
+        // 循环执行, 知道token0或token1用尽
+        // 整个函数的主体由一个while循环组成。也就是说，swap过程分解成多个小步骤，一点点的调整当前的Tick，直到满足所有的交易量
+
         // continue swapping as long as we haven't used the entire input/output and haven't reached the price limit
         while (state.amountSpecifiedRemaining != 0 && state.sqrtPriceX96 != sqrtPriceLimitX96) {
             StepComputations memory step;
 
             step.sqrtPriceStartX96 = state.sqrtPriceX96;
+
+            // 计算下一个可能的Tick，并更新价格
+            // 更新价格: TickMath.getSqrtRatioAtTick
 
             (step.tickNext, step.initialized) = tickBitmap.nextInitializedTickWithinOneWord(
                 state.tick,
@@ -658,6 +705,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
             // get the price for the next tick
             step.sqrtPriceNextX96 = TickMath.getSqrtRatioAtTick(step.tickNext);
+
+            // 计算swap的Token0/Token1以及交易费用
 
             // compute values to swap to the target tick, price limit, or point where input/output amount is exhausted
             (state.sqrtPriceX96, step.amountIn, step.amountOut, step.feeAmount) = SwapMath.computeSwapStep(
@@ -677,6 +726,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                 state.amountSpecifiedRemaining += step.amountOut.toInt256();
                 state.amountCalculated = state.amountCalculated.add((step.amountIn + step.feeAmount).toInt256());
             }
+
+            // 计算费用
 
             // if the protocol fee is on, calculate how much is owed, decrement feeAmount, and increment protocolFee
             if (cache.feeProtocol > 0) {
@@ -706,6 +757,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                         );
                         cache.computedLatestObservation = true;
                     }
+
+                    // 更新Tick信息
+
                     int128 liquidityNet =
                         ticks.cross(
                             step.tickNext,

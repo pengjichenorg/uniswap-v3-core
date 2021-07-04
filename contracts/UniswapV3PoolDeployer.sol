@@ -31,8 +31,19 @@ contract UniswapV3PoolDeployer is IUniswapV3PoolDeployer {
         uint24 fee,
         int24 tickSpacing
     ) internal returns (address pool) {
+
+        // parameters是存储在合约里的一个变量 这里是赋值
+        // 在对poo初始化时, 由pool中的代码主动获取parameters, 而不是通过参数传入使用
+
         parameters = Parameters({factory: factory, token0: token0, token1: token1, fee: fee, tickSpacing: tickSpacing});
+
+        // 交易对地址是token0, token1和fee编码后的结果
+        // 每个交易池有唯一的地址，并且和PoolKey信息保持一致。通过这种方法，从PoolKey信息可以反推出交易池的地址
+
         pool = address(new UniswapV3Pool{salt: keccak256(abi.encode(token0, token1, fee))}());
+
+        // 删除变量
+
         delete parameters;
     }
 }
