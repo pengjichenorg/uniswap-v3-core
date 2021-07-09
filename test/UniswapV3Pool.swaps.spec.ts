@@ -1,5 +1,5 @@
 import { Decimal } from 'decimal.js'
-import { BigNumber, BigNumberish, ContractTransaction } from 'ethers'
+import { BigNumber, BigNumberish, ContractTransaction, Wallet } from 'ethers'
 import { ethers, waffle } from 'hardhat'
 import { MockTimeUniswapV3Pool } from '../typechain/MockTimeUniswapV3Pool'
 import { TestERC20 } from '../typechain/TestERC20'
@@ -448,11 +448,13 @@ const TEST_POOLS: PoolTestCase[] = [
 ]
 
 describe('UniswapV3Pool swap tests', () => {
-  const [wallet] = waffle.provider.getWallets()
+  let wallet: Wallet, other: Wallet
 
   let loadFixture: ReturnType<typeof createFixtureLoader>
 
   before('create fixture loader', async () => {
+    ;[wallet, other] = await (ethers as any).getSigners()
+
     loadFixture = createFixtureLoader([wallet])
   })
 
@@ -522,12 +524,14 @@ describe('UniswapV3Pool swap tests', () => {
             poolBalance0After,
             poolBalance1After,
             slot0After,
+            liquidityAfter,
             feeGrowthGlobal0X128,
             feeGrowthGlobal1X128,
           ] = await Promise.all([
             token0.balanceOf(pool.address),
             token1.balanceOf(pool.address),
             pool.slot0(),
+            pool.liquidity(),
             pool.feeGrowthGlobal0X128(),
             pool.feeGrowthGlobal1X128(),
           ])
@@ -558,6 +562,7 @@ describe('UniswapV3Pool swap tests', () => {
               poolBalance0Delta,
               poolBalance1Delta,
               slot0After.sqrtPriceX96,
+              liquidityAfter,
               slot0After.tick
             )
 
