@@ -14,6 +14,8 @@ library SwapMath {
 
     // 交换开始价格和交换截止价格, 可以计算价格变动, 根据价格变动和L可以计算出兑换出多少token或者需要多少token进行兑换
 
+    // 交易循环中一步的操作
+
     /// @param sqrtRatioCurrentX96 The current sqrt price of the pool
     /// @param sqrtRatioTargetX96 The price that cannot be exceeded, from which the direction of the swap is inferred
     /// @param liquidity The usable liquidity
@@ -54,6 +56,10 @@ library SwapMath {
             amountIn = zeroForOne
                 ? SqrtPriceMath.getAmount0Delta(sqrtRatioTargetX96, sqrtRatioCurrentX96, liquidity, true)
                 : SqrtPriceMath.getAmount1Delta(sqrtRatioCurrentX96, sqrtRatioTargetX96, liquidity, true);
+
+            // 使用下一个tick计算出来扣掉手续费的aountInTmp, 检查amountIn是否能用完
+            // 是计算的amountIn, 而不是计算用完时的tick
+
             if (amountRemainingLessFee >= amountIn) sqrtRatioNextX96 = sqrtRatioTargetX96;
             else
                 sqrtRatioNextX96 = SqrtPriceMath.getNextSqrtPriceFromInput(
@@ -78,6 +84,8 @@ library SwapMath {
 
         bool max = sqrtRatioTargetX96 == sqrtRatioNextX96;
 
+        // 四种兑换方式
+
         // get the input/output amounts
         if (zeroForOne) {
             amountIn = max && exactIn
@@ -99,6 +107,8 @@ library SwapMath {
         if (!exactIn && amountOut > uint256(-amountRemaining)) {
             amountOut = uint256(-amountRemaining);
         }
+
+        // 计算手续费, 兑换一小步扣除一小步的手续费, 并不是一下全扣完
 
         if (exactIn && sqrtRatioNextX96 != sqrtRatioTargetX96) {
             // we didn't reach the target, so take the remainder of the maximum input as fee

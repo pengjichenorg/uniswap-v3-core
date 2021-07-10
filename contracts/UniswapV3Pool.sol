@@ -624,6 +624,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         bool computedLatestObservation;
     }
 
+    // 交易结构
+
     // the top level state of the swap, the results of which are recorded in storage at the end
     struct SwapState {
         // the amount remaining to be swapped in/out of the input/output asset
@@ -642,6 +644,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         uint128 liquidity;
     }
 
+    // 每一步交易产生的输入输出,手续费等信息
+
     struct StepComputations {
         // the price at the beginning of the step
         uint160 sqrtPriceStartX96;
@@ -649,6 +653,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int24 tickNext;
         // whether tickNext is initialized or not
         bool initialized;
+
+        // 下一个tick的价格
+
         // sqrt(price) for the next tick (1/0)
         uint160 sqrtPriceNextX96;
         // how much is being swapped in in this step
@@ -659,6 +666,10 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         uint256 feeAmount;
     }
 
+    // 交易的四种情况
+    // 1.token0兑换token1
+    // 2.token1兑换token0
+    // 3.4.zeroForOne 为ture:指定输入, false:指定输出
     // 交易对中的swap兑换操作
 
     /// @inheritdoc IUniswapV3PoolActions
@@ -666,7 +677,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         address recipient,
         bool zeroForOne,
         int256 amountSpecified,
-        uint160 sqrtPriceLimitX96,
+        uint160 sqrtPriceLimitX96,  // 极限价格 交易停止两种情况: 输入用完或价格到极限
         bytes calldata data
     ) external override noDelegateCall returns (int256 amount0, int256 amount1) {
         require(amountSpecified != 0, 'AS');
@@ -721,6 +732,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
         // 循环执行, 知道token0或token1用尽
         // 整个函数的主体由一个while循环组成。也就是说，swap过程分解成多个小步骤，一点点的调整当前的Tick，直到满足所有的交易量
+        // 循环退出两个条件: 1.输入或输出用完, 2.价格达到极限价格
 
         // continue swapping as long as we haven't used the entire input/output and haven't reached the price limit
         while (state.amountSpecifiedRemaining != 0 && state.sqrtPriceX96 != sqrtPriceLimitX96) {
