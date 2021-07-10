@@ -15,16 +15,30 @@ library Tick {
 
     // info stored for each initialized individual tick
     struct Info {
+
+        // tick当前累积的流动性
+
         // the total position liquidity that references this tick
         uint128 liquidityGross;
+        
+        // 价格跨过tick时, 流动性的变动值
+        
         // amount of net liquidity added (subtracted) when tick is crossed from left to right (right to left),
         int128 liquidityNet;
+        
+        // 累积手续费
+        
         // fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick)
         // only has relative meaning, not absolute — the value depends on when the tick is initialized
         uint256 feeGrowthOutside0X128;
         uint256 feeGrowthOutside1X128;
+        
+        // oracle相关
+        
         // the cumulative tick value on the other side of the tick
         int56 tickCumulativeOutside;
+        
+        
         // the seconds per unit of liquidity on the _other_ side of this tick (relative to the current tick)
         // only has relative meaning, not absolute — the value depends on when the tick is initialized
         uint160 secondsPerLiquidityOutsideX128;
@@ -146,6 +160,9 @@ library Tick {
         }
 
         info.liquidityGross = liquidityGrossAfter;
+
+        // 进入position区间, 加上流动性
+        // 退出position区间, 减去流动性
 
         // when the lower (upper) tick is crossed left to right (right to left), liquidity must be added (removed)
         info.liquidityNet = upper

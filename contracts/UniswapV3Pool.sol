@@ -64,6 +64,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
         // the current tick
         int24 tick;
+
+        // oracle相关
+
         // the most-recently updated index of the observations array
         uint16 observationIndex;
         // the current maximum number of observations that are being stored
@@ -72,7 +75,13 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         uint16 observationCardinalityNext;
         // the current protocol fee as a percentage of the swap fee taken on withdrawal
         // represented as an integer denominator (1/x)%
+
+        // 协议手续费
+
         uint8 feeProtocol;
+
+        // 防止重入
+
         // whether the pool is locked
         bool unlocked;
     }
@@ -99,16 +108,29 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     ProtocolFees public override protocolFees;
 
     // 交易对中的流动性L, L=sqrt(x*y)
+    // 当前价格对应的流动性
 
     /// @inheritdoc IUniswapV3PoolState
     uint128 public override liquidity;
 
+    // ticks信息
+
     /// @inheritdoc IUniswapV3PoolState
     mapping(int24 => Tick.Info) public override ticks;
+
+    // ticks管理, ticks是否进行了初始化
+    // 方便查找下一个初始化的tick
+
     /// @inheritdoc IUniswapV3PoolState
     mapping(int16 => uint256) public override tickBitmap;
+
+    // 方便根据position的key获取position
+
     /// @inheritdoc IUniswapV3PoolState
     mapping(bytes32 => Position.Info) public override positions;
+
+    // oracle记录信息用的数组
+
     /// @inheritdoc IUniswapV3PoolState
     Oracle.Observation[65535] public override observations;
 
@@ -281,6 +303,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     }
 
     // 每个交易池的initialize函数初始化交易池的参数和状态。所有交易池的参数和状态用一个数据结构Slot0来记录
+    // 创建时需要初始化一个价格sqrtPriceX96
 
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev not locked because it initializes unlocked
@@ -342,6 +365,11 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             params.liquidityDelta,
             _slot0.tick
         );
+
+        // 分三种情况: 两种区间外, 区间内
+        // upper外
+        // lower外
+        // 区间内
 
         if (params.liquidityDelta != 0) {
             if (_slot0.tick < params.tickLower) {
@@ -410,6 +438,10 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         uint256 _feeGrowthGlobal0X128 = feeGrowthGlobal0X128; // SLOAD for gas optimization
         uint256 _feeGrowthGlobal1X128 = feeGrowthGlobal1X128; // SLOAD for gas optimization
 
+        // 更新上下tick
+        // 初始化
+        // 更新tick上的流动性
+
         // if we need to update the ticks, do it
         bool flippedLower;
         bool flippedUpper;
@@ -458,8 +490,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             }
         }
 
+        // 更新手续费
+
         (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
             ticks.getFeeGrowthInside(tickLower, tickUpper, tick, _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);
+
+        // 更新position
+        // 更新position的流动性
+        // 更新position的已领取和未领取手续费
 
         position.update(liquidityDelta, feeGrowthInside0X128, feeGrowthInside1X128);
 
@@ -473,6 +511,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             }
         }
     }
+
+    // 添加流动性
+    // 使用回调做了一些处理
 
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev noDelegateCall is applied indirectly via _modifyPosition
