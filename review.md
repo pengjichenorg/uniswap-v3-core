@@ -119,6 +119,16 @@ uniswap-v3-periphery
 ## 代码分析
 
 
+### 主要接口
+
+- 1. 创建交易对 位于UniswapV3Factory.sol
+
+- 2. 添加/删除流动性 位于UniswapV3Pool.sol 
+
+- 3. 领取流动性手续费奖励 位于UniswapV3Pool.sol 
+
+- 4. token兑换 位于UniswapV3Pool.sol 
+
 
 ### 创建交易对
 

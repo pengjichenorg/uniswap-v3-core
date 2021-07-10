@@ -14,10 +14,13 @@ contract UniswapV3Factory is IUniswapV3Factory, UniswapV3PoolDeployer, NoDelegat
     /// @inheritdoc IUniswapV3Factory
     address public override owner;
 
-    // 节拍间隔
+    // tick间隔与手续费的对应关系
 
     /// @inheritdoc IUniswapV3Factory
     mapping(uint24 => int24) public override feeAmountTickSpacing;
+    
+    // token0 => token1 => fee => poolAddress 三层map嵌套
+
     /// @inheritdoc IUniswapV3Factory
     mapping(address => mapping(address => mapping(uint24 => address))) public override getPool;
 
@@ -37,7 +40,7 @@ contract UniswapV3Factory is IUniswapV3Factory, UniswapV3PoolDeployer, NoDelegat
     }
 
 
-    // 创建交易对
+    // 创建交易对 两个tokenpool地址和手续费决定一个pool地址
     // 500 3000 或者10000
 
     /// @inheritdoc IUniswapV3Factory
@@ -56,6 +59,9 @@ contract UniswapV3Factory is IUniswapV3Factory, UniswapV3PoolDeployer, NoDelegat
         // 创建UniswapV3Pool智能合约并设置两个token信息，交易费用信息和tick的步长信息
 
         pool = deploy(address(this), token0, token1, fee, tickSpacing);
+
+        // 在三层map中记录pool地址，并记录两种方向
+
         getPool[token0][token1][fee] = pool;
         // populate mapping in the reverse direction, deliberate choice to avoid the cost of comparing addresses
         getPool[token1][token0][fee] = pool;

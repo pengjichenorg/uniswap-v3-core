@@ -152,9 +152,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
     constructor() {
         int24 _tickSpacing;
+
+        // 获取deployer合约中的parameters变量
+
         (factory, token0, token1, fee, _tickSpacing) = IUniswapV3PoolDeployer(msg.sender).parameters();
         tickSpacing = _tickSpacing;
 
+        // 计算每个tick上可拥有的最大流动性, 以防止累加流动性时溢出
+        
         maxLiquidityPerTick = Tick.tickSpacingToMaxLiquidityPerTick(_tickSpacing);
     }
 

@@ -33,7 +33,7 @@ contract UniswapV3PoolDeployer is IUniswapV3PoolDeployer {
     ) internal returns (address pool) {
 
         // parameters是存储在合约里的一个变量 这里是赋值
-        // 在对poo初始化时, 由pool中的代码主动获取parameters, 而不是通过参数传入使用
+        // 后面在对poo初始化时, 再获取parameters, 而不是通过参数传入使用, 避免创建不同的pool时因传入不同的参数导致initcode发生变化
 
         parameters = Parameters({factory: factory, token0: token0, token1: token1, fee: fee, tickSpacing: tickSpacing});
 
