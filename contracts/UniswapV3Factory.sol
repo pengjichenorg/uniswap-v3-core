@@ -75,6 +75,9 @@ contract UniswapV3Factory is IUniswapV3Factory, UniswapV3PoolDeployer, NoDelegat
         owner = _owner;
     }
 
+    // 自定义手续费与tickSpacing的映射
+    // 默认映射只有500 => 10, 3000 => 60, 10000 => 200
+
     /// @inheritdoc IUniswapV3Factory
     function enableFeeAmount(uint24 fee, int24 tickSpacing) public override {
         require(msg.sender == owner);

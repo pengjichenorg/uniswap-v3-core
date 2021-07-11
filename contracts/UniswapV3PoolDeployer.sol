@@ -39,6 +39,13 @@ contract UniswapV3PoolDeployer is IUniswapV3PoolDeployer {
 
         // 交易对地址是token0, token1和fee编码后的结果
         // 每个交易池有唯一的地址，并且和PoolKey信息保持一致。通过这种方法，从PoolKey信息可以反推出交易池的地址
+        // 通过指定salt选项, 创建合约时生成的地址只与salt内容有关, 而与创建者的nonce无关
+        
+        // solidity文档: https://docs.soliditylang.org/en/v0.7.6/control-structures.html?highlight=salt#salted-contract-creations-create2
+
+        // 如果构造函数中有参数, 还需要在构造函数中传入参数args, 此处创建pool合约的构造函数无需传入参数
+
+        // UniswapV3Pool的构造函数中会通过变量parameters对合约中的factory, token0, token1, fee进行赋值, 并通过tickSpacing计算出单个tick能拥有的流动性上限值maxLiquidityPerTick
 
         pool = address(new UniswapV3Pool{salt: keccak256(abi.encode(token0, token1, fee))}());
 

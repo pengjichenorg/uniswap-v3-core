@@ -132,15 +132,69 @@ uniswap-v3-periphery
 
 ### 创建交易对
 
-./uniswap-v3-periphery/contracts/NonfungiblePositionManager.sol
 
+入口1: 前端迁移部分相关代码: uniswap-interface/src/pages/MigrateV2/MigrateV2Pair.tsx
+
+```ts
+    // create/initialize pool if necessary
+    if (noLiquidity) {
+      data.push(
+        migrator.interface.encodeFunctionData('createAndInitializePoolIfNecessary', [
+          token0.address,
+          token1.address,
+          feeAmount,
+          `0x${sqrtPrice.toString(16)}`,
+        ])
+      )
+    }
 ```
 
+入口2: 前端创建pool部分相关代码: uniswap-interface/src/pages/AddLiquidity/index.tsx
+
+```ts
+// only called on optimism, atm
+  async function onCreate() {
+    if (!chainId || !library) return
+
+    if (!positionManager || !currencyA || !currencyB) {
+      return
+    }
+
+    if (position && account && deadline) {
+      const { calldata, value } = NonfungiblePositionManager.createCallParameters(position.pool)
+
+      const txn: { to: string; data: string; value: string } = {
+        to: NONFUNGIBLE_POSITION_MANAGER_ADDRESSES[chainId],
+        data: calldata,
+        value,
+      }
+      ...
 ```
 
+前端用v3 sdk中封装的方法: v3/uniswap-v3-sdk/src/nonfungiblePositionManager.ts
 
+```ts
+
+  private static encodeCreate(pool: Pool): string {
+    return NonfungiblePositionManager.INTERFACE.encodeFunctionData('createAndInitializePoolIfNecessary', [
+      pool.token0.address,
+      pool.token1.address,
+      pool.fee,
+      toHex(pool.sqrtRatioX96)
+    ])
+  }
+
+  public static createCallParameters(pool: Pool): MethodParameters {
+    return {
+      calldata: this.encodeCreate(pool),
+      value: toHex(0)
+    }
+  }
 ```
-./uniswap-v3-periphery/contracts/base/PoolInitializer.sol
+
+uniswap-v3-periphery/contracts/base/PoolInitializer.sol
+
+```solidity
 
    // 通过UniswapV3Factory查看是否已经存在对应的交易池，如果没有，创建交易池，如果有了但是还没有初始化，初始化交易池
 
@@ -166,12 +220,156 @@ uniswap-v3-periphery
     }
 ```
 
+uniswap-v3-core/contracts/UniswapV3Factory.sol
+
+```solidity
+
+    constructor() {
+        owner = msg.sender;
+        emit OwnerChanged(address(0), msg.sender);
+
+        // 按手续费设置tick间跨度 万五 千三 百一
+        // 手续费分子和分母被放大100万倍
+
+        feeAmountTickSpacing[500] = 10;
+        emit FeeAmountEnabled(500, 10);
+        feeAmountTickSpacing[3000] = 60;
+        emit FeeAmountEnabled(3000, 60);
+        feeAmountTickSpacing[10000] = 200;
+        emit FeeAmountEnabled(10000, 200);
+    }
+
+
+```
+
+```solidity
+
+    // 创建交易对 两个tokenpool地址和手续费决定一个pool地址
+    // 500 3000 或者10000
+
+    /// @inheritdoc IUniswapV3Factory
+    function createPool(
+        address tokenA,
+        address tokenB,
+        uint24 fee
+    ) external override noDelegateCall returns (address pool) {
+        require(tokenA != tokenB);
+        (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+        require(token0 != address(0));
+        int24 tickSpacing = feeAmountTickSpacing[fee];
+        require(tickSpacing != 0);
+        require(getPool[token0][token1][fee] == address(0));
+
+        // 创建UniswapV3Pool智能合约并设置两个token信息，交易费用信息和tick的步长信息
+
+        pool = deploy(address(this), token0, token1, fee, tickSpacing);
+
+        // 在三层map中记录pool地址，并记录两种方向
+
+        getPool[token0][token1][fee] = pool;
+        // populate mapping in the reverse direction, deliberate choice to avoid the cost of comparing addresses
+        getPool[token1][token0][fee] = pool;
+        emit PoolCreated(token0, token1, fee, tickSpacing, pool);
+    }
+
+```
+
+uniswap-v3-core/contracts/UniswapV3PoolDeployer.sol
+
+```solidity
+
+   /// @dev Deploys a pool with the given parameters by transiently setting the parameters storage slot and then
+    /// clearing it after deploying the pool.
+    /// @param factory The contract address of the Uniswap V3 factory
+    /// @param token0 The first token of the pool by address sort order
+    /// @param token1 The second token of the pool by address sort order
+    /// @param fee The fee collected upon every swap in the pool, denominated in hundredths of a bip
+    /// @param tickSpacing The spacing between usable ticks
+    function deploy(
+        address factory,
+        address token0,
+        address token1,
+        uint24 fee,
+        int24 tickSpacing
+    ) internal returns (address pool) {
+
+        // parameters是存储在合约里的一个变量 这里是赋值
+        // 后面在对poo初始化时, 再获取parameters, 而不是通过参数传入使用, 避免创建不同的pool时因传入不同的参数导致initcode发生变化
+
+        parameters = Parameters({factory: factory, token0: token0, token1: token1, fee: fee, tickSpacing: tickSpacing});
+
+        // 交易对地址是token0, token1和fee编码后的结果
+        // 每个交易池有唯一的地址，并且和PoolKey信息保持一致。通过这种方法，从PoolKey信息可以反推出交易池的地址
+        // 通过指定salt选项, 创建合约时生成的地址只与salt内容有关, 而与创建者的nonce无关
+        
+        // solidity文档: https://docs.soliditylang.org/en/v0.7.6/control-structures.html?highlight=salt#salted-contract-creations-create2
+
+        // 如果构造函数中有参数, 还需要在构造函数中传入参数args, 此处创建pool合约的构造函数无需传入参数
+
+        // UniswapV3Pool的构造函数中会通过变量parameters对合约中的factory, token0, token1, fee进行赋值, 并通过tickSpacing计算出单个tick能拥有的流动性上限值maxLiquidityPerTick
+
+        pool = address(new UniswapV3Pool{salt: keccak256(abi.encode(token0, token1, fee))}());
+
+        // 删除变量
+
+        delete parameters;
+    }
+```
+
+uniswap-v3-core/contracts/UniswapV3Pool.sol
+
+```solidity
+
+   constructor() {
+        int24 _tickSpacing;
+
+        // 获取deployer合约中的parameters变量
+
+        (factory, token0, token1, fee, _tickSpacing) = IUniswapV3PoolDeployer(msg.sender).parameters();
+        tickSpacing = _tickSpacing;
+
+        // 计算每个tick上可拥有的最大流动性, 以防止累加流动性时溢出
+        
+        maxLiquidityPerTick = Tick.tickSpacingToMaxLiquidityPerTick(_tickSpacing);
+    }
+
+```
+ 
 ### 流动性操作
 
 #### 添加流动性
-```
-./uniswap-v3-periphery/contracts/base/LiquidityManagement.sol
 
+前端:
+
+```ts
+```
+
+前端用sdk封装
+```ts
+public static addCallParameters(position: Position, options: AddLiquidityOptions): MethodParameters {
+    invariant(JSBI.greaterThan(position.liquidity, ZERO), 'ZERO_LIQUIDITY')
+
+    const calldatas: string[] = []
+
+    // get amounts
+    const { amount0: amount0Desired, amount1: amount1Desired } = position.mintAmounts
+
+    // adjust for slippage
+    const minimumAmounts = position.mintAmountsWithSlippage(options.slippageTolerance)
+    const amount0Min = toHex(minimumAmounts.amount0)
+    const amount1Min = toHex(minimumAmounts.amount1)
+
+    const deadline = toHex(options.deadline)
+
+    // create pool if needed
+    if (isMint(options) && options.createPool) {
+      calldatas.push(this.encodeCreate(position.pool))
+    }
+```
+
+uniswap-v3-periphery/contracts/base/LiquidityManagement.sol
+
+```solidity
 
     //  添加流动性需要的参数
 
@@ -205,8 +403,9 @@ uniswap-v3-periphery
 
 #### 删除流动性
 
-```
 uniswap-v3-periphery/contracts/NonfungiblePositionManager.sol
+
+```solidity
 
   /// @inheritdoc INonfungiblePositionManager
     function collect(CollectParams calldata params)
@@ -220,9 +419,9 @@ uniswap-v3-periphery/contracts/NonfungiblePositionManager.sol
     }
 ```
 
-
-```
 uniswap-v3-core/contracts/UniswapV3Pool.sol
+
+```solidity
 
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev noDelegateCall is applied indirectly via _modifyPosition
