@@ -135,7 +135,7 @@ uniswap-v3-periphery
 
 入口1: 前端迁移部分相关代码: uniswap-interface/src/pages/MigrateV2/MigrateV2Pair.tsx
 
-```ts
+```js
     // create/initialize pool if necessary
     if (noLiquidity) {
       data.push(
@@ -151,7 +151,7 @@ uniswap-v3-periphery
 
 入口2: 前端创建pool部分相关代码: uniswap-interface/src/pages/AddLiquidity/index.tsx
 
-```ts
+```js
 // only called on optimism, atm
   async function onCreate() {
     if (!chainId || !library) return
@@ -173,7 +173,7 @@ uniswap-v3-periphery
 
 前端用v3 sdk中封装的方法: v3/uniswap-v3-sdk/src/nonfungiblePositionManager.ts
 
-```ts
+```js
 
   private static encodeCreate(pool: Pool): string {
     return NonfungiblePositionManager.INTERFACE.encodeFunctionData('createAndInitializePoolIfNecessary', [
@@ -194,7 +194,7 @@ uniswap-v3-periphery
 
 uniswap-v3-periphery/contracts/base/PoolInitializer.sol
 
-```solidity
+```js
 
    // 通过UniswapV3Factory查看是否已经存在对应的交易池，如果没有，创建交易池，如果有了但是还没有初始化，初始化交易池
 
@@ -222,7 +222,7 @@ uniswap-v3-periphery/contracts/base/PoolInitializer.sol
 
 uniswap-v3-core/contracts/UniswapV3Factory.sol
 
-```solidity
+```js
 
     constructor() {
         owner = msg.sender;
@@ -242,7 +242,7 @@ uniswap-v3-core/contracts/UniswapV3Factory.sol
 
 ```
 
-```solidity
+```js
 
     // 创建交易对 两个tokenpool地址和手续费决定一个pool地址
     // 500 3000 或者10000
@@ -276,7 +276,7 @@ uniswap-v3-core/contracts/UniswapV3Factory.sol
 
 uniswap-v3-core/contracts/UniswapV3PoolDeployer.sol
 
-```solidity
+```js
 
    /// @dev Deploys a pool with the given parameters by transiently setting the parameters storage slot and then
     /// clearing it after deploying the pool.
@@ -318,7 +318,7 @@ uniswap-v3-core/contracts/UniswapV3PoolDeployer.sol
 
 uniswap-v3-core/contracts/UniswapV3Pool.sol
 
-```solidity
+```js
 
    constructor() {
         int24 _tickSpacing;
@@ -334,18 +334,50 @@ uniswap-v3-core/contracts/UniswapV3Pool.sol
     }
 
 ```
- 
+
+```
+创建pool的时候，只是将pool创建出来，此时还并没有添加流动性，没有具体价格
+```
+
 ### 流动性操作
 
 #### 添加流动性
 
-前端:
+前端: uniswap/v3/uniswap-interface/src/pages/AddLiquidity/index.tsx
 
-```ts
+```js
+ ...
+ async function onAdd() {
+    if (!chainId || !library || !account) return
+
+    if (!positionManager || !currencyA || !currencyB) {
+      return
+    }
+
+    if (position && account && deadline) {
+      const useNative = currencyA.isNative ? currencyA : currencyB.isNative ? currencyB : undefined
+      const { calldata, value } =
+        hasExistingPosition && tokenId
+          ? NonfungiblePositionManager.addCallParameters(position, {
+              tokenId,
+              slippageTolerance: allowedSlippage,
+              deadline: deadline.toString(),
+              useNative,
+            })
+          : NonfungiblePositionManager.addCallParameters(position, {
+              slippageTolerance: allowedSlippage,
+              recipient: account,
+              deadline: deadline.toString(),
+              useNative,
+              createPool: noLiquidity,
+            })
+...
+
 ```
 
-前端用sdk封装
-```ts
+前端用sdk uniswap/v3/uniswap-v3-sdk/src/nonfungiblePositionManager.ts
+
+```js
 public static addCallParameters(position: Position, options: AddLiquidityOptions): MethodParameters {
     invariant(JSBI.greaterThan(position.liquidity, ZERO), 'ZERO_LIQUIDITY')
 
@@ -367,9 +399,14 @@ public static addCallParameters(position: Position, options: AddLiquidityOptions
     }
 ```
 
+uniswap/v3/uniswap-v3-sdk/src/entities/position.ts
+```js
+
+```
+
 uniswap-v3-periphery/contracts/base/LiquidityManagement.sol
 
-```solidity
+```js
 
     //  添加流动性需要的参数
 
@@ -405,7 +442,7 @@ uniswap-v3-periphery/contracts/base/LiquidityManagement.sol
 
 uniswap-v3-periphery/contracts/NonfungiblePositionManager.sol
 
-```solidity
+```js
 
   /// @inheritdoc INonfungiblePositionManager
     function collect(CollectParams calldata params)
@@ -421,7 +458,7 @@ uniswap-v3-periphery/contracts/NonfungiblePositionManager.sol
 
 uniswap-v3-core/contracts/UniswapV3Pool.sol
 
-```solidity
+```js
 
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev noDelegateCall is applied indirectly via _modifyPosition
