@@ -345,6 +345,11 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int128 liquidityDelta;
     }
 
+    // 添加流动性时对position结构的修改
+    // 传入的参数: 用户地址, position上下边界价格, 变更的流动性
+    // 1.修改position信息
+    // 2.根据传入的liqudity计算出amount0和amount1, liquidity是前面从amount0或amount1计算出来的, 现在倒着再计算一遍, 以确保数值精确
+
     /// @dev Effect some changes to a position
     /// @param params the position details and the change to the position's liquidity to effect
     /// @return position a storage pointer referencing the position with the given owner and tick range
@@ -359,9 +364,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             int256 amount1
         )
     {
+
+	// 检查tickers是否超出tick的最大和最小边界
+
         checkTicks(params.tickLower, params.tickUpper);
 
         Slot0 memory _slot0 = slot0; // SLOAD for gas optimization
+
+        // 更新position中的数据
 
         position = _updatePosition(
             params.owner,
@@ -438,7 +448,13 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int128 liquidityDelta,
         int24 tick
     ) private returns (Position.Info storage position) {
+
+        // 获取position
+        // owner tickerLower tickerUpper可以唯一确定一个position
+
         position = positions.get(owner, tickLower, tickUpper);
+
+        // f0和f1 在首次添加流动性之前尚未赋值, 初始化为0
 
         uint256 _feeGrowthGlobal0X128 = feeGrowthGlobal0X128; // SLOAD for gas optimization
         uint256 _feeGrowthGlobal1X128 = feeGrowthGlobal1X128; // SLOAD for gas optimization
@@ -447,12 +463,22 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         // 初始化
         // 更新tick上的流动性
 
+        // flipped: 翻转, 即从初始化状态变为未初始化状态, 或从未初始化状态变为初始化状态
+        // tick lower是否翻转
+        // tick upper是否翻转
+
         // if we need to update the ticks, do it
         bool flippedLower;
         bool flippedUpper;
+
+        // 流动性有变化就更新ticker
+
         if (liquidityDelta != 0) {
             uint32 time = _blockTimestamp();
             (int56 tickCumulative, uint160 secondsPerLiquidityCumulativeX128) =
+
+                // oracle相关
+
                 observations.observeSingle(
                     time,
                     0,
@@ -461,6 +487,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                     liquidity,
                     slot0.observationCardinality
                 );
+
+            // 更新tickLower和tickUpper
+            // 传入的参数除了要更新的tick和是否是upper tick的bool值, 其他参数都一样
 
             flippedLower = ticks.update(
                 tickLower,
@@ -487,6 +516,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                 maxLiquidityPerTick
             );
 
+            // 如果tick状态有翻转, 则在tickBtimap中更新
+
             if (flippedLower) {
                 tickBitmap.flipTick(tickLower, tickSpacing);
             }
@@ -495,7 +526,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             }
         }
 
-        // 更新手续费
+        // 计算内侧手续费, 用于计算position内积累的手续费
 
         (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
             ticks.getFeeGrowthInside(tickLower, tickUpper, tick, _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);
@@ -505,6 +536,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         // 更新position的已领取和未领取手续费
 
         position.update(liquidityDelta, feeGrowthInside0X128, feeGrowthInside1X128);
+
+        // 如果流动性是减少的, 则清理翻转了的tick数据
 
         // clear any tick data that is no longer needed
         if (liquidityDelta < 0) {
@@ -530,6 +563,12 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         bytes calldata data
     ) external override lock returns (uint256 amount0, uint256 amount1) {
         require(amount > 0);
+
+        // 根据流动性计算需要添加的token0和token1数量
+        // 之前属于预计算, 算出流动性数量后再根据流动性数量计算出amount0和amount1
+        // _modifyPosition是个方法
+        // ModifyPositionParams是个结构体
+
         (, int256 amount0Int, int256 amount1Int) =
             _modifyPosition(
                 ModifyPositionParams({
@@ -540,17 +579,30 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                 })
             );
 
+
+        // 去顶amount0和amount1的值
+
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
+
+        // 添加流动性之前的balance0和balance1
 
         uint256 balance0Before;
         uint256 balance1Before;
         if (amount0 > 0) balance0Before = balance0();
         if (amount1 > 0) balance1Before = balance1();
+
+        // 使用回调, 进行token0和token1的转入和NFTtoekn的mint
+
         IUniswapV3MintCallback(msg.sender).uniswapV3MintCallback(amount0, amount1, data);
+
+        // 检查token0和token1两个token数量是否相应增加
+
         if (amount0 > 0) require(balance0Before.add(amount0) <= balance0(), 'M0');
         if (amount1 > 0) require(balance1Before.add(amount1) <= balance1(), 'M1');
 
+        // 输入Mint日志, 至此添加流动性操作完成
+        
         emit Mint(msg.sender, recipient, tickLower, tickUpper, amount, amount0, amount1);
     }
 

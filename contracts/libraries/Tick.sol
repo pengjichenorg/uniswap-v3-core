@@ -113,6 +113,11 @@ library Tick {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
+    // 更新tick
+    // 更新tick的累加流动性
+    // 更新越过tick时需要增减的流动性
+    // 如果是初始化的tick lower, 初始化tick的f0
+
     /// @notice Updates a tick and returns true if the tick was flipped from initialized to uninitialized, or vice versa
     /// @param self The mapping containing all tick information for initialized ticks
     /// @param tick The tick that will be updated
@@ -138,14 +143,29 @@ library Tick {
         bool upper,
         uint128 maxLiquidity
     ) internal returns (bool flipped) {
+
+        // 取出tick对象
+
         Tick.Info storage info = self[tick];
 
-        // 获取此 tick 更新之前的流动性
+        // tick 更新之前和更新之后的流动性
+        // liquidityDelta为正数则加上, 为负数则减去
 
         uint128 liquidityGrossBefore = info.liquidityGross;
         uint128 liquidityGrossAfter = LiquidityMath.addDelta(liquidityGrossBefore, liquidityDelta);
 
+        // 防止当前价格流动性溢出, 只要每个tick的流动性不溢出, 就算当前价格流动性是所有的tick上流动性的总和时也不会溢出
+
         require(liquidityGrossAfter <= maxLiquidity, 'LO');
+
+        // tick上流动性变成了0或从0变成了非0
+        // 即tick前后状态有变化
+        // after == 0: true or false
+        // before == 0: true or false
+        // flipped:     true != true    => false    after: 0,   before: 0
+        //              true != false   => true     after: 0,   before: > 0
+        //              false!= true    => true     after: > 0, before: 0    
+        //              false!= false   => flase    after: > 0, before: > 0
 
         flipped = (liquidityGrossAfter == 0) != (liquidityGrossBefore == 0);
 
@@ -153,7 +173,15 @@ library Tick {
         // 这里会初始化 tick 中的 f_o
 
         if (liquidityGrossBefore == 0) {
+
+            // 按照惯例，我们假设在一个价格变动被初始化之前的所有增长都发生在_低于_价格变动
+
             // by convention, we assume that all growth before a tick was initialized happened _below_ the tick
+
+            // f0的初始化
+            // 对于tick lower和token upper两个tick, tick lower的f0会被初始化为fg, tick upper的f0初始化为0
+            // 这样在保证了fg = tickLower.f0 + tickUpper.f0, 以后越过tick时在用 f0越过后 = fg - f0越过前 
+
             if (tick <= tickCurrent) {
                 info.feeGrowthOutside0X128 = feeGrowthGlobal0X128;
                 info.feeGrowthOutside1X128 = feeGrowthGlobal1X128;
@@ -164,8 +192,12 @@ library Tick {
             info.initialized = true;
         }
 
+        // tick上累加的流动性
+
         info.liquidityGross = liquidityGrossAfter;
 
+        // tick上越过tick时需要加减的流动性
+        // 是加还是减去, 与tick是position的上边界还是下边界有关, 也与价格越过tick的方向有关
         // 进入position区间, 加上流动性
         // 退出position区间, 减去流动性
 
