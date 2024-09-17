@@ -193,6 +193,9 @@ library SqrtPriceMath {
                 : FullMath.mulDiv(liquidity, sqrtRatioBX96 - sqrtRatioAX96, FixedPoint96.Q96);
     }
 
+    // 根据价格差和流动性计算token数量
+    // 白皮书公式在流动性的使用
+
     /// @notice Helper that gets signed token0 delta
     /// @param sqrtRatioAX96 A sqrt price
     /// @param sqrtRatioBX96 Another sqrt price
